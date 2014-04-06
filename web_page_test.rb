@@ -1,8 +1,9 @@
-require 'httparty'
 require 'rubygems'
+require 'httparty'
 require "thor"
 require 'susuwatari'
-require 'google_drive'
+require_relative 'lib/web_page_test_location'
+require_relative 'lib/google/spreadsheet'
 
 class WebPageTest < Thor
   class_option :api_key, :aliases => :a, :required => true
@@ -12,8 +13,9 @@ class WebPageTest < Thor
   class_option :google_password, :aliases => :p
   class_option :google_spreadsheet_key, :aliases => :k
 
-  desc "wpt_analyze", "Analyze a website with WePageTest.org"
+  include Google
 
+  desc "wpt_analyze", "Analyze a website with WePageTest.org"
   def wpt_analyze(url)
     wptl = WebPageTestLocation.new
     wptl_open = wptl.is_open?(options[:location])
@@ -31,13 +33,15 @@ class WebPageTest < Thor
       location = location.first
       prefix = "#{options[:view].gsub(/\s+/, "_")}.#{browser}.#{location}"
       if spreadsheet?
-        session = GoogleDrive.login(options[:google_username], options[:google_password])
-        ss = session.spreadsheet_by_key(options[:google_spreadsheet_key])
+        ss = Google::Spreadsheet.new(
+            options[:google_spreadsheet_key],
+            options[:google_username],
+            options[:google_password])
         raise "Unable to open spreadsheet" if ss.nil?
         worksheet_name = "#{options[:view]}:#{options[:location]}"
         puts "Saving to Google Spreadsheet, tab #{worksheet_name}"
-        ws = get_worksheet_called(ss, worksheet_name)
-        ws ||= add_worksheet(ss, worksheet_name)
+        ws = ss.use_worksheet_called(worksheet_name)
+        ws ||= ss.add_worksheet(worksheet_name)
         cells = [
             Time.now.to_s,
             Date.today.strftime('%A'),
@@ -72,8 +76,8 @@ class WebPageTest < Thor
           end
         end
         cells.flatten!
-        add_to_row(ws, cells)
-        save_worksheet(ws)
+        ss.add_to_worksheet(ws, cells)
+        ss.save_worksheet(ws)
         puts "Spreadsheet saved"
       else
         if wpt.result.run.first_view.respond_to?(:results)
@@ -99,85 +103,7 @@ class WebPageTest < Thor
         false
       end
     end
-
-    def get_worksheet_called(ss, title)
-      ss.worksheets.detect{|w| w.title.eql?(title)}
-    end
-
-    def add_worksheet(ss, title)
-      return ss.add_worksheet(title)
-    end
-
-    def duplicate_worksheet(ss, ws, title)
-      old = ws.rows
-      new = add_worksheet(ss, title)
-      new.update_cells(1, 1, old)
-      save_worksheet(new)
-      new
-    end
-
-    def add_column(ws, name)
-      column_place = ws.num_cols + 1
-      ws[1, column_place] = name
-      column_place
-    end
-
-    def last_row(ws)
-      ws.num_rows + 1
-    end
-
-    def add_to_row(ws, array)
-      last_row = last_row(ws)
-      array.each_with_index do |a, i|
-        ws[last_row, i + 1] = a
-      end
-    end
-
-    def save_worksheet(ws)
-      ws.save
-    end
-
   end
-end
-
-class WebPageTestLocation
-  include HTTParty
-  attr_reader :json, :nodes, :browsers, :locations
-
-  def initialize
-    refresh
-  end
-
-  def nodes
-    @nodes ||= @json.keys
-  end
-
-  def browsers
-    @browsers ||= @json.map { |j| j.last["Browser"] }.uniq
-  end
-
-  def locations
-    @locations ||= @json.map { |j| j.last["location"].split(/[:_]/).first }.uniq
-  end
-
-  def refresh
-    @json = self.class.get("http://www.webpagetest.org/getLocations.php?f=json")["data"]
-  end
-
-  def open_executors
-    @json.find_all { |j| j.last["PendingTests"]["Idle"] > 0 }
-  end
-
-  def is_open?(location)
-    j = @json.select { |j| j.match(location) }
-    raise "No location found for #{location}" if j.empty?
-    j.values.first["PendingTests"]["Idle"] > 0 ? true : false
-  end
-
-  def find_open(regexp)
-    nodes.find_all { |n| n.match(regexp) }.detect { |a| is_open?(a) }
-  end
-
 end
 
 WebPageTest.start(ARGV)
