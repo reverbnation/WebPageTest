@@ -34,9 +34,9 @@ class WebPageTest < Thor
     end
     puts
     if statsd?
-      # production.rn_app.all.webpagetest
       $statsd = Statsd.new(options[:statsd_hostname], options[:statsd_port])
       $statsd.namespace = options[:statsd_namespace]
+      puts "Logging to statsd namespace:#{options[:statsd_namespace]} on #{options[:statsd_hostname]}:#{options[:statsd_port]}"
     end
     if wpt.respond_to?(:result)
       location = options[:location].split(/[:_]/)
