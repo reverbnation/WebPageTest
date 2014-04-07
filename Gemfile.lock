@@ -40,6 +40,7 @@ GEM
     rack (1.5.2)
     rest-client (1.6.7)
       mime-types (>= 1.16)
+    statsd-ruby (1.2.1)
     susuwatari (1.0.0)
       activesupport (>= 3.0.0)
       hashie (~> 1.2.0)
@@ -56,5 +57,6 @@ PLATFORMS
 DEPENDENCIES
   google_drive
   httparty
+  statsd-ruby
   susuwatari
   thor

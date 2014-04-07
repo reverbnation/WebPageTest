@@ -2,6 +2,7 @@ require 'rubygems'
 require 'httparty'
 require "thor"
 require 'susuwatari'
+require 'statsd-ruby'
 require_relative 'lib/web_page_test_location'
 require_relative 'lib/google/spreadsheet'
 
@@ -12,13 +13,15 @@ class WebPageTest < Thor
   class_option :google_username, :aliases => :u
   class_option :google_password, :aliases => :p
   class_option :google_spreadsheet_key, :aliases => :k
+  class_option :statsd_namespace, :aliases => :n
+  class_option :statsd_hostname, :aliases => :h
+  class_option :statsd_port, :aliases => :t
 
   METRICS = [:ttfb, :render, :load_time, :visual_complete, :fully_loaded, :speed_index]
 
   include Google
 
   desc "wpt_analyze", "Analyze a website with WePageTest.org"
-
   def wpt_analyze(url)
     wptl = WebPageTestLocation.new
     wptl_open = wptl.is_open?(options[:location])
@@ -30,6 +33,11 @@ class WebPageTest < Thor
       printf "."
     end
     puts
+    if statsd?
+      # production.rn_app.all.webpagetest
+      $statsd = Statsd.new(options[:statsd_hostname], options[:statsd_port])
+      $statsd.namespace = options[:statsd_namespace]
+    end
     if wpt.respond_to?(:result)
       location = options[:location].split(/[:_]/)
       browser = location.last
@@ -45,6 +53,7 @@ class WebPageTest < Thor
           METRICS.each do |metric|
             cells << (wpt.result.run.first_view.results.send(metric).to_f / 1000).to_s if spreadsheet?
             puts("#{prefix}.first_view.#{metric} = #{wpt.result.run.first_view.results.send(metric)}ms")
+            $statsd.timing("#{prefix}.first_view.#{metric}", wpt.result.run.first_view.results.send(metric)) if statsd?
           end
           cells << nil # spacer
         else
@@ -54,6 +63,7 @@ class WebPageTest < Thor
           METRICS.each do |metric|
             cells << (wpt.result.run.repeat_view.results.send(metric).to_f / 1000).to_s if spreadsheet?
             puts("#{prefix}.repeat_view.#{metric} = #{wpt.result.run.repeat_view.results.send(metric)}ms")
+            $statsd.timing("#{prefix}.repeat_view.#{metric}", wpt.result.run.repeat_view.results.send(metric)) if statsd?
           end
           cells << wpt.result.summary
         else
@@ -87,6 +97,16 @@ class WebPageTest < Thor
         false
       end
     end
+
+    def statsd?
+      if options[:statsd_namespace] || options[:statsd_hostname] || options[:statsd_port]
+        raise "Must specify all statsd options(statsd_namespace, statsd_hostname, statsd_port) to send results to statsd" unless options[:statsd_namespace] && options[:statsd_hostname] && options[:statsd_port]
+        true
+      else
+        false
+      end
+    end
+
   end
 end
 
