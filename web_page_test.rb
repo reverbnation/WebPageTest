@@ -13,9 +13,12 @@ class WebPageTest < Thor
   class_option :google_password, :aliases => :p
   class_option :google_spreadsheet_key, :aliases => :k
 
+  METRICS = [:ttfb, :render, :load_time, :visual_complete, :fully_loaded, :speed_index]
+
   include Google
 
   desc "wpt_analyze", "Analyze a website with WePageTest.org"
+
   def wpt_analyze(url)
     wptl = WebPageTestLocation.new
     wptl_open = wptl.is_open?(options[:location])
@@ -32,6 +35,32 @@ class WebPageTest < Thor
       browser = location.last
       location = location.first
       prefix = "#{options[:view].gsub(/\s+/, "_")}.#{browser}.#{location}"
+      cells = [
+          Time.now.to_s,
+          Date.today.strftime('%A'),
+          nil
+      ]
+      if wpt.respond_to?(:result)
+        if wpt.result.run.first_view.respond_to?(:results)
+          METRICS.each do |metric|
+            cells << (wpt.result.run.first_view.results.send(metric).to_f / 1000).to_s if spreadsheet?
+            puts("#{prefix}.first_view.#{metric} = #{wpt.result.run.first_view.results.send(metric)}ms")
+          end
+          cells << nil # spacer
+        else
+          7.times { cells << nil }
+        end
+        if wpt.result.run.repeat_view.respond_to?(:results)
+          METRICS.each do |metric|
+            cells << (wpt.result.run.repeat_view.results.send(metric).to_f / 1000).to_s if spreadsheet?
+            puts("#{prefix}.repeat_view.#{metric} = #{wpt.result.run.repeat_view.results.send(metric)}ms")
+          end
+          cells << wpt.result.summary
+        else
+          7.times { cells << nil }
+        end
+      end
+      cells.flatten!
       if spreadsheet?
         ss = Google::Spreadsheet.new(
             options[:google_spreadsheet_key],
@@ -42,54 +71,9 @@ class WebPageTest < Thor
         puts "Saving to Google Spreadsheet, tab #{worksheet_name}"
         ws = ss.use_worksheet_called(worksheet_name)
         ws ||= ss.add_worksheet(worksheet_name)
-        cells = [
-            Time.now.to_s,
-            Date.today.strftime('%A'),
-            nil
-        ]
-        if wpt.respond_to?(:result)
-          if wpt.result.run.first_view.respond_to?(:results)
-            cells << [
-                (wpt.result.run.first_view.results.ttfb.to_f / 1000).to_s,
-                (wpt.result.run.first_view.results.render.to_f / 1000).to_s,
-                (wpt.result.run.first_view.results.load_time.to_f / 1000).to_s,
-                (wpt.result.run.first_view.results.visual_complete.to_f / 1000).to_s,
-                (wpt.result.run.first_view.results.fully_loaded.to_f / 1000).to_s,
-                (wpt.result.run.first_view.results.speed_index.to_f / 1000).to_s,
-                nil
-            ]
-          else
-            7.times { cells << nil }
-          end
-          if wpt.result.run.repeat_view.respond_to?(:results)
-            cells << [
-                (wpt.result.run.repeat_view.results.ttfb.to_f / 1000).to_s,
-                (wpt.result.run.repeat_view.results.render.to_f / 1000).to_s,
-                (wpt.result.run.repeat_view.results.load_time.to_f / 1000).to_s,
-                (wpt.result.run.repeat_view.results.visual_complete.to_f / 1000).to_s,
-                (wpt.result.run.repeat_view.results.fully_loaded.to_f / 1000).to_s,
-                (wpt.result.run.repeat_view.results.speed_index.to_f / 1000).to_s,
-                wpt.result.summary
-            ]
-          else
-            7.times { cells << nil }
-          end
-        end
-        cells.flatten!
         ss.add_to_worksheet(ws, cells)
         ss.save_worksheet(ws)
         puts "Spreadsheet saved"
-      else
-        if wpt.result.run.first_view.respond_to?(:results)
-          [:ttfb, :render, :load_time, :visual_complete, :fully_loaded, :speed_index].each do |metric|
-            puts("#{prefix}.first_view.#{metric}=#{wpt.result.run.first_view.results.send(metric)}ms")
-          end
-        end
-        if wpt.result.run.repeat_view.respond_to?(:results)
-          [:ttfb, :render, :load_time, :visual_complete, :fully_loaded, :speed_index].each do |metric|
-            puts("#{prefix}.repeat_view.#{metric}=#{wpt.result.run.repeat_view.results.send(metric)}ms")
-          end
-        end
       end
     end
   end
