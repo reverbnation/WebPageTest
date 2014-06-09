@@ -28,9 +28,21 @@ class WebPageTest < Thor
     raise "Unable to open #{options[:location]}" unless wptl_open
     wpt = Susuwatari.new(url: url, k: options[:api_key], location: options[:location], video: 1)
     wpt.run
-    while wpt.status.eql?(:running)
+
+    max_loops = 100
+    while(!wpt.status.eql?(:completed) && max_loops > 0)
       sleep 5 # seconds
+      max_loops -= 1
       printf "."
+    end
+    if wpt.respond_to?(:result)
+      puts "Got WPT data"
+    elsif max_loops == 0
+      puts "Request timed out"
+      exit 1
+    else
+      puts "No results returned"    
+      exit 1
     end
     puts
     if statsd?
